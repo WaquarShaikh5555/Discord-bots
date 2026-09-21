@@ -1,0 +1,44 @@
+# Production stack: the bot plus a local PostgreSQL.
+#
+#   cp .env.example .env      # fill in tokens/keys
+#   docker compose up -d
+#
+# Using Supabase or an existing PostgreSQL instead? Delete the `db` service and
+# point DATABASE_URL at it (see .env.example).
+
+services:
+  bot:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      # Override the SQLite default from .env.example when running with `db`.
+      DATABASE_URL: postgresql+asyncpg://tickets:tickets@db:5432/tickets
+    depends_on:
+      db:
+        condition: service_healthy
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: tickets
+      POSTGRES_PASSWORD: tickets
+      POSTGRES_DB: tickets
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      # Optional: provision the schema by hand instead of letting the ORM do it.
+      # - ./schema.sql:/docker-entrypoint-initdb.d/schema.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U tickets -d tickets"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  pgdata:
