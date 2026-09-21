@@ -36,6 +36,55 @@ def _env_str(name: str, default: str = "") -> str:
     return (os.getenv(name) or default).strip()
 
 
+#: Substrings that mean "the operator never replaced the example value".
+_PLACEHOLDER_MARKERS: Final[tuple[str, ...]] = (
+    "paste",
+    "your-",
+    "your_",
+    "changeme",
+    "change-me",
+    "placeholder",
+    "todo",
+    "xxx",
+    "example",
+    "insert-",
+    "put-",
+)
+
+
+def _looks_unfilled(value: str) -> bool:
+    """True when a secret still holds a template marker instead of a real key.
+
+    Catches ``KEY=`` left with a trailing inline comment (python-dotenv keeps the
+    comment as the value), ``KEY=<your-token>``, ``KEY=your-api-key``, etc.
+    """
+    candidate = value.strip().lower()
+    if not candidate:
+        return False
+    if candidate.startswith("#"):
+        return True
+    if candidate.startswith("<") and candidate.endswith(">"):
+        return True
+    # Real credentials (Discord tokens, gsk_/csk-/AIza keys) never contain
+    # internal whitespace, so a space means prose was pasted instead of a key.
+    if any(char.isspace() for char in candidate):
+        return True
+    return any(marker in candidate for marker in _PLACEHOLDER_MARKERS)
+
+
+def _env_secret(name: str) -> str:
+    """Read a credential, rejecting unfilled placeholders with a clear error."""
+    value = _env_str(name)
+    if value and _looks_unfilled(value):
+        raise ConfigurationError(
+            f"{name} still contains a placeholder value ({value[:40]!r}). "
+            f"Replace it with the real credential, or leave it completely empty "
+            f"to disable that provider. Note that .env values must not be followed "
+            f"by an inline comment — put comments on their own line."
+        )
+    return value
+
+
 def _env_int(name: str, default: int, *, minimum: int = 0, maximum: int | None = None) -> int:
     raw = _env_str(name)
     if not raw:
@@ -200,7 +249,7 @@ def _provider_settings(
     upper = name.upper()
     return ProviderSettings(
         name=name,
-        api_key=_env_str(PROVIDER_API_KEY_ENV[name]),
+        api_key=_env_secret(PROVIDER_API_KEY_ENV[name]),
         model=_env_str(f"{upper}_MODEL", model_default),
         requests_per_minute=_env_float(f"{upper}_REQUESTS_PER_MINUTE", rpm_default, minimum=0.1),
         requests_per_day=_env_int(f"{upper}_REQUESTS_PER_DAY", rpd_default, minimum=0),
@@ -224,7 +273,7 @@ def load_settings(env_file: str | Path | None = None, *, load_dotenv_file: bool 
     provider_chain = tuple(name.lower() for name in _env_list("AI_PROVIDER_CHAIN", DEFAULT_PROVIDER_CHAIN))
 
     settings = Settings(
-        discord_token=_env_str("DISCORD_BOT_TOKEN"),
+        discord_token=_env_secret("DISCORD_BOT_TOKEN"),
         database_url=_env_str("DATABASE_URL", "sqlite+aiosqlite:///data/tickets.db"),
         log_level=_env_str("LOG_LEVEL", "INFO").upper(),
         dev_guild_ids=_snowflake_list("DEV_GUILD_IDS"),

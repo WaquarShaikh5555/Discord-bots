@@ -1,0 +1,52 @@
+[Unit]
+Description=Discord AI Ticket Responder
+Documentation=https://github.com/WaquarShaikh5555/Discord-bots
+# Wait for real network connectivity: the bot needs DNS + TLS to Discord at boot.
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ticketbot
+Group=ticketbot
+WorkingDirectory=/opt/ticket-bot
+
+# Secrets live in /opt/ticket-bot/.env (chmod 600). systemd reads them into the
+# process environment; python-dotenv then leaves them alone (override=False).
+EnvironmentFile=/opt/ticket-bot/.env
+Environment=PYTHONUNBUFFERED=1
+
+ExecStart=/opt/ticket-bot/.venv/bin/python -m bot
+
+# The bot must stay up. discord.py already retries gateway disconnects, so a
+# restart here only happens on a real crash or a host reboot.
+Restart=always
+RestartSec=10
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+# --- hardening ------------------------------------------------------------- #
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+# SQLite (and its WAL files) need write access here and nowhere else.
+ReadWritePaths=/opt/ticket-bot/data
+
+# A leak should never take the whole VM down; 65 MB is the measured footprint,
+# so 512 MB leaves generous headroom.
+MemoryMax=512M
+TasksMax=256
+
+# Logs go to the journal:  journalctl -u ticket-bot -f
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=ticket-bot
+
+[Install]
+WantedBy=multi-user.target

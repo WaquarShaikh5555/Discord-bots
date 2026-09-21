@@ -51,7 +51,7 @@ tier or stall when a provider has an outage.
 - [AI providers and free-tier management](#ai-providers-and-free-tier-management)
 - [Configuration reference](#configuration-reference)
 - [Database schema](#database-schema)
-- [Production deployment](#production-deployment)
+- [Deployment and free hosting](#production-deployment)
 - [Testing](#testing)
 - [Project layout](#project-layout)
 - [Troubleshooting](#troubleshooting)
@@ -324,6 +324,15 @@ foreign keys, PostgreSQL with pooling and pre-ping.
 ---
 
 ## Production deployment
+
+> **Where to host it for free?** See **[DEPLOYMENT.md](DEPLOYMENT.md)** for a full comparison of
+> free hosts (with the ones that silently sleep your bot called out), step-by-step Oracle Cloud
+> and Google Cloud setups, a hardened `systemd` unit in [`deploy/`](deploy/ticket-bot.service),
+> SQLite-vs-PostgreSQL guidance, backups and free-tier traffic maths.
+>
+> Short version: the bot uses **65 MB of RAM**, needs a process that never sleeps, and requires
+> **no inbound ports**. Oracle Cloud Always Free or Google Cloud's free `e2-micro` are the best
+> $0 options; Render/Replit/Railway free tiers will idle it and break the gateway connection.
 
 **Docker** (bot + PostgreSQL):
 
