@@ -294,7 +294,10 @@ rename columns, introduce Alembic — the current tables match `schema.sql` exac
       online but never answers"
 - [ ] Bot invited with scopes `bot` **and** `applications.commands`
 - [ ] Bot's role sits **above** the staff role in Server Settings → Roles (or Discord blocks the ping)
-- [ ] `.env` has `chmod 600` and is not committed (`git status` must not list it)
+- [ ] `.env` has `chmod 600` and is not tracked (`git ls-files .env` must print nothing)
+- [ ] `.env.example` still has every secret **empty** — it is committed, and on a public repo it is
+      public. `python -m scripts.secretscan` must report no findings
+- [ ] `python -m scripts.install_hooks` has been run on **every** machine that commits here
 - [ ] `python -m scripts.doctor --live` reports green for your primary provider
 - [ ] `/setup-kb`, `/set-staff-role` and `/set-ticket-category` all run in the target server
 - [ ] A test question in a ticket channel gets an answer, and an unanswerable one escalates

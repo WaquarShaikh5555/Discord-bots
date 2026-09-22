@@ -50,6 +50,7 @@ tier or stall when a provider has an outage.
 - [Multi-tenancy guarantees](#multi-tenancy-guarantees)
 - [AI providers and free-tier management](#ai-providers-and-free-tier-management)
 - [Configuration reference](#configuration-reference)
+- [Keeping credentials safe](#keeping-credentials-safe)
 - [Database schema](#database-schema)
 - [Deployment and free hosting](#production-deployment)
 - [Testing](#testing)
@@ -105,15 +106,18 @@ tier or stall when a provider has an outage.
 python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 
-# 2. Configure
+# 2. Configure — edit .env, NOT .env.example (that one is committed and public)
 cp .env.example .env
-#    edit .env: DISCORD_BOT_TOKEN, DATABASE_URL, and at least one of
+#    fill in .env: DISCORD_BOT_TOKEN and at least one of
 #    GROQ_API_KEY / CEREBRAS_API_KEY / GEMINI_API_KEY
 
-# 3. Validate (recommended)
+# 3. Install the pre-commit guard that blocks committing real keys
+python -m scripts.install_hooks
+
+# 4. Validate (recommended)
 python -m scripts.doctor --live
 
-# 4. Run
+# 5. Run
 python -m bot
 ```
 
@@ -297,6 +301,50 @@ All settings live in `.env` (see [`.env.example`](.env.example) for the annotate
 
 ---
 
+## Keeping credentials safe
+
+`.env.example` is **committed on purpose** — `.gitignore` whitelists it with `!.env.example`. It is a
+template, so it must only ever hold empty or obviously fake values. Real keys belong in `.env`, which
+git ignores:
+
+```bash
+cp .env.example .env   # then edit .env and leave .env.example alone
+```
+
+Three layers back that rule up:
+
+| Layer | Command | What it does |
+| --- | --- | --- |
+| Pre-commit hook | `python -m scripts.install_hooks` | Scans **staged** content and blocks the commit if anything looks like a real credential. |
+| On-demand scan | `python -m scripts.secretscan` | Scans every tracked text file (`--staged` scans the index instead). |
+| Pre-flight | `python -m scripts.doctor` | Its *Secret hygiene* section checks the template, all tracked files, that `.env` exists, and that it is git-ignored. |
+
+The scanner is standard-library only, so the hook works before dependencies are installed. It matches
+known key formats — Groq `gsk_`, Cerebras `csk-`, Google `AIza…` and the newer `AQ.…`, Discord's
+three-segment bot token, OpenAI, Anthropic, GitHub, Slack, AWS, Stripe, Telegram, PEM private keys — and
+as a catch-all, any secret-named variable (`*_TOKEN`, `*_API_KEY`, `*_SECRET`, `*_PASSWORD`, …) whose
+value is non-empty, not a documented placeholder, has no internal whitespace, and carries enough Shannon
+entropy to be a real key. The catch-all only runs in configuration files, so a Python keyword argument
+like `api_key=_env_secret(...)` is not reported. Findings are always masked to a five-character prefix
+plus a length, so the report itself can never leak the value.
+
+The installer writes a shim into `.git/hooks/pre-commit` rather than setting `core.hooksPath`, and any
+hook you already had is preserved as `pre-commit.pre-secretscan.bak` and still runs — other hooks
+(commit-msg trailers, CI integrations) are never disabled.
+
+**If a key has already been pushed, rotate it.** Deleting the commit is not a fix: automated scrapers
+read public repositories within minutes, and GitHub keeps orphaned commits reachable by SHA until
+garbage collection runs. For this bot:
+
+1. **Discord** — [developer portal](https://discord.com/developers/applications) → your app → *Bot* → **Reset Token**.
+2. **Groq** — [console.groq.com/keys](https://console.groq.com/keys) → revoke, then create a new key.
+3. **Cerebras** — [cloud.cerebras.ai](https://cloud.cerebras.ai/) → revoke, then recreate.
+4. **Gemini** — [aistudio.google.com/apikey](https://aistudio.google.com/apikey) → delete, then recreate.
+
+Then update `.env` and confirm with `python -m scripts.doctor --live`.
+
+---
+
 ## Database schema
 
 `server_configs` and `ticket_logs` match the specification verbatim. Two **additive** extension
@@ -414,9 +462,13 @@ bot/
     ├── ratelimit.py            # token bucket, daily budget, circuit breaker
     ├── text.py                 # chunking, sanitising, truncation
     └── logging_setup.py
-scripts/doctor.py               # pre-flight config/DB/provider validation
+scripts/
+├── doctor.py                   # pre-flight config/DB/provider + secret-hygiene checks
+├── secretscan.py               # credential scanner (stdlib only; backs the hook)
+├── install_hooks.py            # installs .git/hooks/pre-commit without hijacking hooksPath
+└── hooks/pre-commit            # version-controlled hook: blocks committing live keys
 schema.sql                      # reference DDL
-tests/                          # 267 tests (fakes.py = offline Discord + HTTP doubles)
+tests/                          # 402 tests (fakes.py = offline Discord + HTTP doubles)
 ```
 
 The dependency direction is strict: `cogs → services → db/utils`. Nothing in `services/` or `db/`

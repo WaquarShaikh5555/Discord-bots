@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import subprocess
 import sys
 from pathlib import Path
 
@@ -104,6 +105,96 @@ async def check_providers(settings, *, live: bool) -> bool:
         return all_ok
 
 
+def check_secret_hygiene() -> bool:
+    """Fail if credentials are committed anywhere, or if .env is not ignored.
+
+    This is the check that would have caught a real key pasted into
+    ``.env.example`` before it reached a public remote. History rewrites are not
+    a substitute for rotating an exposed key, so the message says so plainly.
+    """
+    print("\nSecret hygiene")
+    from scripts import secretscan
+
+    ok = True
+    root = Path(__file__).resolve().parent.parent
+
+    # 1. The committed template must never hold a real value.
+    example = root / ".env.example"
+    if example.is_file():
+        findings = secretscan.scan_text(example.read_text(encoding="utf-8"), ".env.example")
+        if findings:
+            ok = False
+            report(FAIL, ".env.example is COMMITTED and contains real-looking credentials:")
+            for finding in findings:
+                report(FAIL, f"    {finding.format()}")
+            report(
+                WARN,
+                "    rotate those keys now — deleting the commit does not undo a public leak",
+            )
+        else:
+            report(OK, ".env.example holds no credentials (it is committed on purpose)")
+    else:
+        report(WARN, ".env.example not found")
+
+    # 2. Nothing else tracked should carry a credential either.
+    tracked = list(secretscan.iter_repo_files(str(root)))
+    elsewhere = [
+        f
+        for f in secretscan.scan_paths([p for p in tracked if p != ".env.example"], str(root))
+    ]
+    if elsewhere:
+        ok = False
+        report(FAIL, f"{len(elsewhere)} credential(s) found in tracked files:")
+        for finding in elsewhere[:10]:
+            report(FAIL, f"    {finding.format()}")
+        if len(elsewhere) > 10:
+            report(FAIL, f"    ... and {len(elsewhere) - 10} more")
+    else:
+        report(OK, f"scanned {len(tracked)} tracked files — clean")
+
+    # 3. .env must exist locally and must be ignored by git.
+    env_file = root / ".env"
+    if env_file.is_file():
+        report(OK, ".env exists (this is where real keys belong)")
+    else:
+        report(WARN, ".env is missing — create it with:  cp .env.example .env")
+
+    tracked_env = subprocess.run(
+        ["git", "ls-files", "--error-unmatch", ".env"],
+        cwd=root, capture_output=True, text=True,
+    )
+    if tracked_env.returncode == 0:
+        ok = False
+        report(FAIL, ".env is TRACKED by git — run:  git rm --cached .env")
+    else:
+        ignored = subprocess.run(
+            ["git", "check-ignore", "-q", ".env"], cwd=root, capture_output=True, text=True
+        )
+        if ignored.returncode == 0:
+            report(OK, ".env is git-ignored")
+        elif ignored.returncode == 1:
+            report(WARN, ".env is not git-ignored — add `.env` to .gitignore")
+        else:
+            report(WARN, "git not available — could not verify .env is ignored")
+
+    # 4. Nudge towards the pre-commit guard.
+    from scripts.install_hooks import HOOK_NAME, hooks_dir, is_ours
+
+    try:
+        installed = is_ours(hooks_dir(root) / HOOK_NAME)
+    except subprocess.CalledProcessError:
+        installed = False
+    if installed:
+        report(OK, "pre-commit secret scanner is installed")
+    else:
+        report(
+            WARN,
+            "pre-commit secret scanner not installed — run:  python -m scripts.install_hooks",
+        )
+
+    return ok
+
+
 def check_intents(settings) -> None:
     print("\nDiscord application")
     if settings.discord_token:
@@ -137,12 +228,17 @@ async def main() -> int:
     print("Discord AI Ticket Responder — setup doctor")
     print("=" * 52)
 
+    # Deliberately before load_settings(): a bad .env raises ConfigurationError
+    # and returns early, and that is precisely when a leaked key must still be
+    # reported rather than silently skipped.
+    hygiene_ok = check_secret_hygiene()
+
     try:
         settings = load_settings(args.env, load_dotenv_file=True)
     except ConfigurationError as exc:
         print(f"\n  {FAIL} Configuration error:\n     {exc}\n")
         print("  Copy .env.example to .env and fill in the required values.")
-        return 2
+        return 1 if not hygiene_ok else 2
 
     if args.verbose:
         print("\nEffective configuration")
@@ -150,6 +246,7 @@ async def main() -> int:
             print(f"  {key}: {value}")
 
     results = [
+        hygiene_ok,
         await check_database(settings),
         await check_providers(settings, live=args.live),
     ]

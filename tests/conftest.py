@@ -10,6 +10,9 @@ from typing import Any, AsyncIterator, Callable
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+# Repo root as well, so `bot` and `scripts` import regardless of how pytest
+# is invoked (bare `pytest` does not add the cwd the way `python -m pytest` does).
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from bot.config import ProviderSettings, Settings  # noqa: E402
 from bot.db.repository import TicketRepository  # noqa: E402
@@ -20,9 +23,7 @@ from fakes import (  # noqa: E402
     BOT_USER_ID,
     CATEGORY_ID,
     GUILD_ID,
-    MEMBER_ID,
     STAFF_ROLE_ID,
-    TICKET_CHANNEL_ID,
     FakeBot,
     FakeSession,
     FakeUser,

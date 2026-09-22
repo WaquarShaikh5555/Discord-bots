@@ -1,0 +1,48 @@
+#!/bin/sh
+# Secret scanner pre-commit hook — blocks commits containing live credentials.
+#
+# Install:   python -m scripts.install_hooks
+# Bypass:    git commit --no-verify      (only when you are sure it is a false
+#                                        positive; then teach the scanner)
+#
+# Design notes:
+#   * Fails open if the scanner itself cannot run (no python, git error) so a
+#     broken tool never blocks legitimate work.
+#   * Fails closed on findings: exit 1 from the scanner aborts the commit.
+#   * Scans the STAGED content (git index), not the working tree, so what gets
+#     committed is exactly what gets checked.
+
+repo_root=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
+cd "$repo_root" || exit 0
+
+# Nothing to scan in a repo that does not carry the scanner.
+[ -f scripts/secretscan.py ] || exit 0
+
+PY=""
+for candidate in python3 python; do
+    if command -v "$candidate" >/dev/null 2>&1; then
+        PY="$candidate"
+        break
+    fi
+done
+if [ -z "$PY" ]; then
+    echo "pre-commit: no python interpreter found — skipping secret scan" >&2
+    exit 0
+fi
+
+"$PY" -m scripts.secretscan --staged --quiet
+status=$?
+
+case "$status" in
+    0) exit 0 ;;
+    1)
+        echo "" >&2
+        echo "pre-commit: commit aborted. Move real credentials into .env" >&2
+        echo "            (git-ignored) and leave .env.example empty." >&2
+        exit 1
+        ;;
+    *)
+        echo "pre-commit: secret scanner errored (exit $status) — not blocking" >&2
+        exit 0
+        ;;
+esac
