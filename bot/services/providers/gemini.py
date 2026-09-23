@@ -26,7 +26,7 @@ GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta"
 
 
 class GeminiProvider(LLMProvider):
-    """``gemini-2.0-flash`` via the Generative Language REST API."""
+    """``gemini-3.8-flash`` (fallback) via the Generative Language REST API."""
 
     name: ClassVar[str] = "gemini"
     base_url: ClassVar[str] = GEMINI_BASE_URL

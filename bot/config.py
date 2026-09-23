@@ -279,15 +279,15 @@ def load_settings(env_file: str | Path | None = None, *, load_dotenv_file: bool 
         dev_guild_ids=_snowflake_list("DEV_GUILD_IDS"),
         provider_chain=provider_chain,
         groq=_provider_settings(
-            "groq", model_default="llama-3.3-70b-versatile", rpm_default=15.0, rpd_default=14_400,
+            "groq", model_default="openai/gpt-oss-120b", rpm_default=15.0, rpd_default=14_400,
             timeout=request_timeout,
         ),
         cerebras=_provider_settings(
-            "cerebras", model_default="llama3.3-70b", rpm_default=60.0, rpd_default=14_400,
+            "cerebras", model_default="gpt-oss-120b", rpm_default=60.0, rpd_default=14_400,
             timeout=request_timeout,
         ),
         gemini=_provider_settings(
-            "gemini", model_default="gemini-2.0-flash", rpm_default=15.0, rpd_default=1_500,
+            "gemini", model_default="gemini-3.8-flash", rpm_default=15.0, rpd_default=1_500,
             timeout=request_timeout,
         ),
         temperature=_env_float("AI_TEMPERATURE", 0.2, minimum=0.0, maximum=2.0),

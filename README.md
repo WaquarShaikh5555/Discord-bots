@@ -95,7 +95,7 @@ tier or stall when a provider has an outage.
 - `/ticket-status` and `/ai-status` surface live health, rate limits and usage.
 - Every request is persisted to `llm_usage` so free-tier spend survives restarts.
 - `scripts/doctor.py` validates config, database and providers before you launch.
-- 267 automated tests, including end-to-end flows that need no network or gateway.
+- 433 automated tests, including end-to-end flows that need no network or gateway.
 
 ---
 
@@ -246,9 +246,16 @@ the same ticket; the update is still posted, just without a second notification.
 
 | Provider | Endpoint | Default model | Notes |
 |---|---|---|---|
-| Groq | `api.groq.com/openai/v1` | `llama-3.3-70b-versatile` | Primary. `llama-3.1-8b-instant` is a good high-volume swap. |
-| Cerebras | `api.cerebras.ai/v1` | `llama3.3-70b` | Sub-second latency; uses `max_completion_tokens`. |
-| Gemini | `generativelanguage.googleapis.com/v1beta` | `gemini-2.0-flash` | Fallback; safety blocks fail over instead of retrying. |
+| Groq | `api.groq.com/openai/v1` | `openai/gpt-oss-120b` | Primary. `openai/gpt-oss-20b` is a good high-volume swap. |
+| Cerebras | `api.cerebras.ai/v1` | `gpt-oss-120b` | Sub-second latency; uses `max_completion_tokens`. |
+| Gemini | `generativelanguage.googleapis.com/v1beta` | `gemini-3.8-flash` | Fallback; safety blocks fail over instead of retrying. |
+
+Providers retire model IDs on a rolling basis and the retired name answers **HTTP 404** — the bot
+then escalates every ticket with "the AI service is unavailable". Groq shut down
+`llama-3.3-70b-versatile` on 2026-08-16, Cerebras shut down `llama3.3-70b` on 2026-02-16 and Google
+shut down `gemini-2.0-flash` on 2026-06-01. When that happens, run
+`python -m scripts.list_models`: it asks each configured key which models it can reach and prints
+the `*_MODEL=` lines to paste into `.env` (it never prints the keys themselves).
 
 Requests go out over a shared `aiohttp` session — no vendor SDK, so the dependency surface stays
 small and providers are trivially mockable in tests.
@@ -276,9 +283,9 @@ All settings live in `.env` (see [`.env.example`](.env.example) for the annotate
 | `DISCORD_BOT_TOKEN` | — | **Required.** Bot token. |
 | `DATABASE_URL` | `sqlite+aiosqlite:///data/tickets.db` | SQLite for dev, `postgresql+asyncpg://…` for prod. |
 | `AI_PROVIDER_CHAIN` | `groq,cerebras,gemini` | Failover order; keyless providers are skipped. |
-| `GROQ_API_KEY` / `GROQ_MODEL` | — / `llama-3.3-70b-versatile` | Primary provider. |
-| `CEREBRAS_API_KEY` / `CEREBRAS_MODEL` | — / `llama3.3-70b` | Second primary. |
-| `GEMINI_API_KEY` / `GEMINI_MODEL` | — / `gemini-2.0-flash` | Fallback. |
+| `GROQ_API_KEY` / `GROQ_MODEL` | — / `openai/gpt-oss-120b` | Primary provider. |
+| `CEREBRAS_API_KEY` / `CEREBRAS_MODEL` | — / `gpt-oss-120b` | Second primary. |
+| `GEMINI_API_KEY` / `GEMINI_MODEL` | — / `gemini-3.8-flash` | Fallback. |
 | `*_REQUESTS_PER_MINUTE` / `*_REQUESTS_PER_DAY` | per provider | Free-tier ceilings. |
 | `AI_TEMPERATURE` | `0.2` | Low on purpose: sampling noise hurts KB fidelity. |
 | `AI_MAX_TOKENS` | `700` | Output cap. |
@@ -466,9 +473,10 @@ scripts/
 ├── doctor.py                   # pre-flight config/DB/provider + secret-hygiene checks
 ├── secretscan.py               # credential scanner (stdlib only; backs the hook)
 ├── install_hooks.py            # installs .git/hooks/pre-commit without hijacking hooksPath
+├── list_models.py              # asks each AI key which models still exist → prints *_MODEL= lines
 └── hooks/pre-commit            # version-controlled hook: blocks committing live keys
 schema.sql                      # reference DDL
-tests/                          # 402 tests (fakes.py = offline Discord + HTTP doubles)
+tests/                          # 433 tests (fakes.py = offline Discord + HTTP doubles)
 ```
 
 The dependency direction is strict: `cogs → services → db/utils`. Nothing in `services/` or `db/`
@@ -486,8 +494,9 @@ imports `discord`, which is why the domain logic is testable without a gateway.
 | Commands do not appear | Global sync can take up to an hour. Set `DEV_GUILD_IDS` for instant per-guild sync, or re-invite with the `applications.commands` scope. |
 | `PrivilegedIntentsRequired` on start | Enable Message Content Intent in the developer portal. |
 | `invalid API key` in logs | That provider is skipped and the chain fails over. Fix the key; `/ai-status` shows the last error per provider. |
+| `model not found` (HTTP 404) in logs — every ticket escalates | The model name was retired upstream. Run `python -m scripts.list_models` and paste the `*_MODEL=` lines it prints into `.env`. |
 | Frequent 429s | Lower `*_REQUESTS_PER_MINUTE` to your real tier, or add a second provider to the chain. |
-| Slow answers | Swap to a smaller/faster model (`llama-3.1-8b-instant`) or put Cerebras first. |
+| Slow answers | Swap to a smaller/faster model (`openai/gpt-oss-20b`) or put Cerebras first. |
 | Long replies look broken | Should not happen — chunking keeps code fences balanced; if you see it, please report the message. |
 
 ---

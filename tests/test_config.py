@@ -176,8 +176,8 @@ def test_defaults_match_the_specification(env_clean):
     assert settings.require_configured_category is True
     assert settings.escalation_preflight_safety is True
     assert settings.escalation_preflight_requests is False
-    assert settings.groq.model == "llama-3.3-70b-versatile"
-    assert settings.gemini.model == "gemini-2.0-flash"
+    assert settings.groq.model == "openai/gpt-oss-120b"
+    assert settings.gemini.model == "gemini-3.8-flash"
     assert settings.provider_chain == ("groq", "cerebras", "gemini")
 
 
